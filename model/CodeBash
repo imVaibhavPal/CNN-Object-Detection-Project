@@ -1,0 +1,135 @@
+# train_yolov8.py
+
+import os
+import random
+import shutil
+import yaml
+from ultralytics import YOLO
+
+# ==============================
+# CONFIG
+# ==============================
+RAW_DATA_PATH = "raw_data"
+DATASET_PATH = "dataset"
+TRAIN_SPLIT = 0.8
+
+CLASS_NAMES = [
+    'apple', 'banana', 'blackberries',
+    'chilli', 'grapes', 'lemon',
+    'raspberry', 'tomato'
+]
+
+# ==============================
+# CREATE FOLDERS
+# ==============================
+def create_folders():
+    os.makedirs(f"{DATASET_PATH}/images/train", exist_ok=True)
+    os.makedirs(f"{DATASET_PATH}/images/val", exist_ok=True)
+    os.makedirs(f"{DATASET_PATH}/labels/train", exist_ok=True)
+    os.makedirs(f"{DATASET_PATH}/labels/val", exist_ok=True)
+    print("Folders created")
+
+# ==============================
+# SPLIT DATASET
+# ==============================
+def split_dataset():
+    images = [f for f in os.listdir(RAW_DATA_PATH) if f.endswith(".jpg")]
+    random.shuffle(images)
+
+    split_idx = int(len(images) * TRAIN_SPLIT)
+    train_images = images[:split_idx]
+    val_images = images[split_idx:]
+
+    for img in train_images:
+        shutil.copy(f"{RAW_DATA_PATH}/{img}", f"{DATASET_PATH}/images/train/{img}")
+        label = img.replace(".jpg", ".txt")
+        shutil.copy(f"{RAW_DATA_PATH}/{label}", f"{DATASET_PATH}/labels/train/{label}")
+
+    for img in val_images:
+        shutil.copy(f"{RAW_DATA_PATH}/{img}", f"{DATASET_PATH}/images/val/{img}")
+        label = img.replace(".jpg", ".txt")
+        shutil.copy(f"{RAW_DATA_PATH}/{label}", f"{DATASET_PATH}/labels/val/{label}")
+
+    print("Dataset split completed")
+
+# ==============================
+# CREATE DATA.YAML
+# ==============================
+def create_yaml():
+    data = {
+        'train': os.path.abspath(f"{DATASET_PATH}/images/train"),
+        'val': os.path.abspath(f"{DATASET_PATH}/images/val"),
+        'nc': len(CLASS_NAMES),
+        'names': CLASS_NAMES
+    }
+
+    with open("data.yaml", "w") as f:
+        yaml.dump(data, f)
+
+    print("data.yaml created")
+
+# ==============================
+# TRAIN MODEL
+# ==============================
+def train_model():
+    model = YOLO("yolov8n.pt")
+
+    model.train(
+        data="data.yaml",
+        epochs=25,
+        imgsz=416,
+        batch=16,
+        project="runs/detect",
+        name="fruit_veg_model"
+    )
+
+    print("Training completed")
+
+# ==============================
+# VALIDATE MODEL
+# ==============================
+def validate_model():
+    best_model_path = "runs/detect/fruit_veg_model/weights/best.pt"
+
+    if not os.path.exists(best_model_path):
+        print("Model not found!")
+        return
+
+    model = YOLO(best_model_path)
+    metrics = model.val()
+
+    print("\n===== VALIDATION RESULTS =====")
+    print("mAP@0.5:", metrics.box.map50)
+    print("mAP@0.5:0.95:", metrics.box.map)
+    print("Precision:", metrics.box.mp)
+    print("Recall:", metrics.box.mr)
+
+# ==============================
+# PREDICT
+# ==============================
+def predict():
+    model = YOLO("runs/detect/fruit_veg_model/weights/best.pt")
+
+    model.predict(
+        source=f"{DATASET_PATH}/images/val",
+        save=True,
+        conf=0.25
+    )
+
+    print("Prediction completed")
+
+# ==============================
+# MAIN
+# ==============================
+if __name__ == "__main__":
+    print("===== YOLOv8 FRUIT DETECTION PROJECT =====")
+
+    create_folders()
+    split_dataset()
+    create_yaml()
+
+    train_model()
+    validate_model()
+    predict()
+
+    print("\n===== PROJECT COMPLETED =====")
